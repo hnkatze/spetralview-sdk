@@ -54,19 +54,20 @@ class SpectraViewSDK {
     }
 
     // Validate config
-    if (!config.apiKey) {
+    if (!this.config.apiKey) {
       console.warn('[SpectraView] No API key provided, running in offline mode');
     }
     
-    if (!config.apiEndpoint) {
-      console.warn('[SpectraView] No API endpoint provided, running in offline mode');
+    if (!this.config.apiEndpoint && !this.config.apiBaseUrl) {
+      console.warn('[SpectraView] No API endpoint or base URL provided, running in offline mode');
     }
 
     // Set configuration with defaults
     this.config = {
-      apiKey: config.apiKey,
-      apiEndpoint: config.apiEndpoint ? config.apiEndpoint.replace(/\/$/, '') : null, // Remove trailing slash
-      appId: config.appId || 'unknown',
+      apiKey: config.apiKey || process.env.SPECTRAVIEW_API_KEY || null,
+      apiEndpoint: config.apiEndpoint || process.env.SPECTRAVIEW_API_URL || null,
+      apiBaseUrl: config.apiBaseUrl || process.env.SPECTRAVIEW_BASE_URL || null, // New: base URL for paths
+      appId: config.appId || process.env.SPECTRAVIEW_APP_ID || 'unknown',
       userId: config.userId || null,
       
       // Recording options
@@ -128,7 +129,7 @@ class SpectraViewSDK {
     });
 
     // Send session start event (only if endpoint exists)
-    if (this.config.apiEndpoint) {
+    if (this.getApiEndpoint()) {
       await this.sendSessionStart();
     }
   }
@@ -559,7 +560,8 @@ class SpectraViewSDK {
 
     // Only clear buffers if we have an API endpoint
     // Keep events for replay in offline mode
-    if (this.config.apiEndpoint) {
+    const endpoint = this.getApiEndpoint();
+    if (endpoint) {
       this.eventBuffer = [];
       this.customEventBuffer = [];
       this.errorBuffer = [];
@@ -583,8 +585,9 @@ class SpectraViewSDK {
       };
 
       // Send to server (skip if no endpoint)
-      if (this.config.apiEndpoint) {
-        const response = await fetch(`${this.config.apiEndpoint}/sessions/${this.sessionId}/events`, {
+      const endpoint = this.getApiEndpoint();
+      if (endpoint) {
+        const response = await fetch(`${endpoint}/sessions/${this.sessionId}/events`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -664,7 +667,8 @@ class SpectraViewSDK {
    * Send session start event
    */
   async sendSessionStart() {
-    if (!this.config.apiEndpoint) return;
+    const endpoint = this.getApiEndpoint();
+    if (!endpoint) return;
     
     try {
       const payload = {
@@ -690,7 +694,7 @@ class SpectraViewSDK {
         }
       };
 
-      const response = await fetch(`${this.config.apiEndpoint}/sessions/start`, {
+      const response = await fetch(`${endpoint}/sessions/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -713,10 +717,11 @@ class SpectraViewSDK {
    * Send heartbeat
    */
   async sendHeartbeat() {
-    if (!this.config.apiEndpoint) return;
+    const endpoint = this.getApiEndpoint();
+    if (!endpoint) return;
     
     try {
-      await fetch(`${this.config.apiEndpoint}/sessions/${this.sessionId}/heartbeat`, {
+      await fetch(`${endpoint}/sessions/${this.sessionId}/heartbeat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -951,10 +956,11 @@ class SpectraViewSDK {
    * Send session end event
    */
   async sendSessionEnd() {
-    if (!this.config.apiEndpoint) return;
+    const endpoint = this.getApiEndpoint();
+    if (!endpoint) return;
     
     try {
-      await fetch(`${this.config.apiEndpoint}/sessions/${this.sessionId}/end`, {
+      await fetch(`${endpoint}/sessions/${this.sessionId}/end`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1046,6 +1052,22 @@ class SpectraViewSDK {
   getReplayEvents() {
     // Return raw rrweb events from buffer
     return [...this.eventBuffer];
+  }
+
+  /**
+   * Helper to get API endpoint
+   */
+  getApiEndpoint() {
+    // Priority: apiEndpoint > apiBaseUrl > null
+    if (this.config.apiEndpoint) {
+      // Full endpoint provided (legacy)
+      return this.config.apiEndpoint.replace(/\/$/, '');
+    } else if (this.config.apiBaseUrl) {
+      // Base URL provided, append /api
+      const base = this.config.apiBaseUrl.replace(/\/$/, '');
+      return `${base}/api`;
+    }
+    return null;
   }
 
   /**
